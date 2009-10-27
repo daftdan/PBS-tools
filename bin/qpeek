@@ -3,9 +3,9 @@
 # qpeek:  Peek into a job's output spool files
 # Copyright 2006, 2007 Ohio Supercomputer Center
 # Revision info:
-# $HeadURL: http://svn.osc.edu/repos/pbstools/releases/pbstools-2.0/bin/qpeek $
-# $Revision: 199 $
-# $Date: 2007-09-12 13:39:15 -0400 (Wed, 12 Sep 2007) $
+# $HeadURL$
+# $Revision$
+# $Date$
 #
 # Usage:  qpeek [options] JOBID
 #
@@ -18,86 +18,61 @@
 #   -e      Show the stderr file of the job
 #   -o      Show the stdout file of the job
 #   -?      Display help
+use strict;
+use warnings;
+use Getopt::Std;
+use PBS qw/pbs_connect pbs_statjob pbs_default pbs_disconnect/;
 
-$tool="cat";
-$numlines="";
-$suffix="OU";
-if ( defined($ENV{"PBS_HOME"}) )
-  {
-    $spool=$ENV{"PBS_HOME"};
-  }
-else
-  {
-    @defaults=("/usr/spool/PBS",
-	       "/var/spool/pbs",
-	       "/var/spool/torque",
-	       "/var/spool/batch/pbs",
-	       "/var/spool/batch/torque",
-	       "/var/spool/batch/pbs-piv",
-	       "/var/spool/batch/pbs-ipf",
-	       ".",
-	      );
-    foreach $dir ( @defaults )
-      {
-	if ( -d $dir )
-	  {
-	    $spool=$dir;
-	    last;
-	  }
-      }
-  }
-if ( !defined($spool) )
-  {
-    die "Unable to find PBS spool directory!\n";
-  }
-$pbsserver=`cat $spool/server_name` || 
-  die "Unable to find PBS server name!\n";
-chop($pbsserver);
-# hack for sloppy admins who don't put the full hostname
-# in $PBS_HOME/server_name
-if ( $pbsserver =~ /:/ )
-  {
-    ($host,$port) = split(/:/,$pbsserver);
-    @server=gethostbyname($host);
-    $pbsserver=$server[0].":".$port;
-  }
-else
-  {
-    @server=gethostbyname($pbsserver);
-    $pbsserver=$server[0];
-    $host=$server[0];
-  }
+my %options;
+getopt('a', \%options);
 
-while ( $#ARGV>=0 && $ARGV[0] =~ /^[-+].*/ )
-  {
-    if ( $ARGV[0] eq "-c" )
-      {
-        $tool="cat";
-      }
-    elsif ( $ARGV[0] eq "-h" )
-      {
-        $tool="head";
-      }
-    elsif ( $ARGV[0] eq "-t" )
-      {
-        $tool="tail";
-      }
-    elsif ( $ARGV[0] =~ /^[-+][0-9]*(f)?$/ )
-      {
-	$tool="tail";
-        $numlines=$ARGV[0];
-      }
-    elsif ( $ARGV[0] eq "-e" )
-      {
-        $suffix="ER"
-      }
-    elsif ( $ARGV[0] eq "-o" )
-      {
-        $suffix="OU"
-      }
-    elsif ( $ARGV[0] eq "-?" || $ARGV[0] =~ "-(-)?help" )
-      {
-        print STDERR <<EOF;
+my $tool="cat";
+my $numlines="";
+my $suffix="OU";
+my $spooldir;
+#~ my $pbsserver;
+my $mothersuperior;
+
+sub mothersuperior {
+	my $execution_hosts;
+	my $con=pbs_connect(pbs_default());
+	my $status=pbs_statjob($con, $ARGV[0],undef, undef);
+	my @attribs = @{$status->[0]{attribs}};  # we only get 1 status value back
+	foreach my $hash_ref (@attribs) {
+		$execution_hosts = $hash_ref->{value} if($hash_ref->{name} eq "exec_host");
+	}
+	$mothersuperior = (split(/\//, $execution_hosts))[0];
+}
+
+if (defined($ENV{"PBS_HOME"})) {
+	$spooldir=$ENV{"PBS_HOME"};
+} else {
+	my @defaults=("/usr/spool/PBS",
+		"/var/spool/pbs",
+		"/var/torque",
+		"/var/spool/torque",
+		"/var/spool/batch/pbs",
+		"/var/spool/batch/torque",
+		"/var/spool/batch/pbs-piv",
+		"/var/spool/batch/pbs-ipf",
+		#~ ".",
+		);
+	foreach my $dir ( @defaults ) {
+		if ( -d $dir ) {
+			$spooldir=$dir;
+			last;
+		}
+	}
+}
+die "Unable to find PBS spool directory!\n" if ( !defined($spooldir) );
+
+#~ $pbsserver=`cat $spool/server_name` || 
+open(SERVERFH, '<', "$spooldir/server_name");
+chomp(my $pbsserver = <SERVERFH>);
+#~ while (<SERVERFH>) {chomp (my $pbsserver=$_)} or die "Unable to find PBS server name!\n";
+
+sub usage {
+	print STDOUT <<EOF;
 qpeek:  Peek into a job's output spool files
 
  Usage:  qpeek [options] JOBID
@@ -114,49 +89,23 @@ qpeek:  Peek into a job's output spool files
    -o      Show the stdout file of the job (default)
    -?      Display this help message
 EOF
-        exit;
-      }
-    else
-      {
-        print STDERR "qpeek:  Unrecognized option $ARGV[0] ignored\n";
-      }
-    shift(@ARGV);
-  }
+}
 
-if ( $#ARGV>=0 )
-  {
-     $jobid=shift(@ARGV);
-     $jobid=~s/\.[A-z0-9.:]+$//;
-  }
-else
-  {
-    die "No jobid given!\n";
-  }
+$tool="cat" if ($options{c});
+$tool="head" if ($options{h});
+$tool="tail" if ($options{t});
+$numlines=$options{f};
+$suffix="OU" if ($options{o});
+$suffix="ER" if ($options{e});
+my $jobid=$ARGV;
 
-$node=&mothersuperior($jobid);
+my $node=&mothersuperior($jobid);
 die "Job $jobid is not running!\n" if ( $node eq "" );
 
+my $jobname = "$jobid.$pbsserver";
 # chop to magic pbs length
-$jobname = "$jobid.$pbsserver";
-$jobname =~ s/(.{11}).*/$1/;
-exec "rsh -n $node $tool $numlines $spool/spool/$jobname.$suffix\n";
+#~ $jobname =~ s/(.{11}).*/$1/;
 
-sub mothersuperior
-{
-  local($jobid,$node);
-  $jobid=$_[0];
-  $node="";
-  open(QSTAT,"qstat -f $jobid |");
-  while ( <QSTAT> )
-    {
-      chop;
-      if ( $_ =~ /exec_host/ )
-        {
-	  ($keyword,$node)=split(/=/);
-	  $node=~s:/[0-9]+[A-z0-9/+-]*::;
-	  $keyword="";
-	}
-    }
-  close(QSTAT);
-  $node;
-}
+my $command="ssh -n $node $tool $numlines $spooldir/spool/$jobname.$suffix";
+print "running $command\n";
+exec $command;
