@@ -7,37 +7,60 @@
 # $Revision$
 # $Date$
 #
-# Usage:  qpeek [options] JOBID
-#
-# Options:
-#   -c      Show all of the output file ("cat", default)
-#   -h      Show only the beginning of the output file ("head")
-#   -t      Show only the end of the output file ("tail")
-#   -f      Show only the end of the file and keep listening ("tail -f")
-#   -#      Show only # lines of output
-#   -e      Show the stderr file of the job
-#   -o      Show the stdout file of the job
-#   -?      Display help
+# inspired by LSF bpeek
+# 'live' job stdout will be on the 'mothersuperior' (the first execution host) 
+# in a file like    /var/spool/torque/spool/1.pbshost.example.com.OU
+# stderr will be in    "             "             "             .ER
+# the user will want to see the entire file, 'watch' it (tail -f) without worrying 
+# about its location
+# it'd be nice if this feature was part of PBS itself...
+
 use strict;
 use warnings;
 use Getopt::Std;
 use PBS qw/pbs_connect pbs_statjob pbs_default pbs_disconnect/;
+use Data::Dumper;
 
 my %options;
 getopt('a', \%options);
+print "ARGV 0 is $ARGV[0]\n";
 
 my $tool="cat";
 my $numlines="";
 my $suffix="OU";
 my $spooldir;
-#~ my $pbsserver;
+my $pbsserver;
+my $jobid=$ARGV[0];
+my $jobname;
 my $mothersuperior;
+ 
+sub usage {
+	print STDOUT <<EOF;
+qpeek:  Peek into a job's output spool files
+
+ Usage:  qpeek [options] JOBID
+
+ Options:
+   -c      Show all of the output file ("cat", default)
+   -h      Show only the beginning of the output file ("head")
+   -t      Show only the end of the output file ("tail")
+   -f      Show only the end of the file and keep listening ("tail -f")
+   -<num>f Show only the last <num> lines and keep listening ("tail -<num>f")
+   +0f     Show all of the file and keep listening ("tail +0f")
+   -#      Show only # lines of output ("tail -<num>")
+   -e      Show the stderr file of the job
+   -o      Show the stdout file of the job (default)
+   -?      Display this help message
+EOF
+}
 
 sub mothersuperior {
 	my $execution_hosts;
 	my $con=pbs_connect(pbs_default());
-	my $status=pbs_statjob($con, $ARGV[0],undef, undef);
-	my @attribs = @{$status->[0]{attribs}};  # we only get 1 status value back
+	my $status=pbs_statjob($con, $_[0], undef, undef) or die "Unable to stat PBS job $jobid";
+	print Dumper($status);
+	$jobname = $status{Job_Name};
+	my @attribs = @{$status->[0]{attribs}} or die "can't set \@attribs!\n"; # we only get 1 status value back
 	foreach my $hash_ref (@attribs) {
 		$execution_hosts = $hash_ref->{value} if($hash_ref->{name} eq "exec_host");
 	}
@@ -66,45 +89,18 @@ if (defined($ENV{"PBS_HOME"})) {
 }
 die "Unable to find PBS spool directory!\n" if ( !defined($spooldir) );
 
-#~ $pbsserver=`cat $spool/server_name` || 
-open(SERVERFH, '<', "$spooldir/server_name");
-chomp(my $pbsserver = <SERVERFH>);
+#~ $pbsserver=`cat $spool/server_name` ||
+#~ open(SERVERFH, '<', "$spooldir/server_name");
+#~ chomp($pbsserver = <SERVERFH>);
 #~ while (<SERVERFH>) {chomp (my $pbsserver=$_)} or die "Unable to find PBS server name!\n";
 
-sub usage {
-	print STDOUT <<EOF;
-qpeek:  Peek into a job's output spool files
-
- Usage:  qpeek [options] JOBID
-
- Options:
-   -c      Show all of the output file ("cat", default)
-   -h      Show only the beginning of the output file ("head")
-   -t      Show only the end of the output file ("tail")
-   -f      Show only the end of the file and keep listening ("tail -f")
-   -<num>f Show only the last <num> lines and keep listening ("tail -<num>f")
-   +0f     Show all of the file and keep listening ("tail +0f")
-   -#      Show only # lines of output ("tail -<num>")
-   -e      Show the stderr file of the job
-   -o      Show the stdout file of the job (default)
-   -?      Display this help message
-EOF
-}
-
-$tool="cat" if ($options{c});
-$tool="head" if ($options{h});
-$tool="tail" if ($options{t});
-$numlines=$options{f};
-$suffix="OU" if ($options{o});
-$suffix="ER" if ($options{e});
-my $jobid=$ARGV;
+#~ $jobid = $ARGV[0] . "." . $pbsserver;
+#~ print "\$jobid is $jobid\n";
+# chop to magic pbs length
+#~ $jobname =~ s/(.{11}).*/$1/;
 
 my $node=&mothersuperior($jobid);
 die "Job $jobid is not running!\n" if ( $node eq "" );
-
-my $jobname = "$jobid.$pbsserver";
-# chop to magic pbs length
-#~ $jobname =~ s/(.{11}).*/$1/;
 
 my $command="ssh -n $node $tool $numlines $spooldir/spool/$jobname.$suffix";
 print "running $command\n";
