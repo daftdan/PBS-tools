@@ -18,6 +18,13 @@
 #   -e      Show the stderr file of the job
 #   -o      Show the stdout file of the job
 #   -?      Display help
+#
+# 'live' job stdout will be on the 'mothersuperior' (the first execution host) in a file like
+# /var/spool/torque/spool/1.pbshost.example.com.OU
+# stderr will be in " ".ER
+# the user will want to see the entire file, 'watch' it (tail -f) without worrying about its
+# location
+
 use strict;
 use warnings;
 use Getopt::Std;
