@@ -7,18 +7,6 @@
 # $Revision$
 # $Date$
 #
-# Usage:  qpeek [options] JOBID
-#
-# Options:
-#   -c      Show all of the output file ("cat", default)
-#   -h      Show only the beginning of the output file ("head")
-#   -t      Show only the end of the output file ("tail")
-#   -f      Show only the end of the file and keep listening ("tail -f")
-#   -#      Show only # lines of output
-#   -e      Show the stderr file of the job
-#   -o      Show the stdout file of the job
-#   -?      Display help
-#
 # 'live' job stdout will be on the 'mothersuperior' (the first execution host) in a file like
 # /var/spool/torque/spool/1.pbshost.example.com.OU
 # stderr will be in " ".ER
@@ -39,6 +27,26 @@ my $suffix="OU";
 my $spooldir;
 #~ my $pbsserver;
 my $mothersuperior;
+
+sub usage {
+	print STDOUT <<EOF;
+qpeek:  Peek into a job's output spool files
+
+ Usage:  qpeek [options] JOBID
+
+ Options:
+   -c      Show all of the output file ("cat", default)
+   -h      Show only the beginning of the output file ("head")
+   -t      Show only the end of the output file ("tail")
+   -f      Show only the end of the file and keep listening ("tail -f")
+   -<num>f Show only the last <num> lines and keep listening ("tail -<num>f")
+   +0f     Show all of the file and keep listening ("tail +0f")
+   -#      Show only # lines of output ("tail -<num>")
+   -e      Show the stderr file of the job
+   -o      Show the stdout file of the job (default)
+   -?      Display this help message
+EOF
+}
 
 sub mothersuperior {
 	my $execution_hosts;
@@ -77,26 +85,6 @@ die "Unable to find PBS spool directory!\n" if ( !defined($spooldir) );
 open(SERVERFH, '<', "$spooldir/server_name");
 chomp(my $pbsserver = <SERVERFH>);
 #~ while (<SERVERFH>) {chomp (my $pbsserver=$_)} or die "Unable to find PBS server name!\n";
-
-sub usage {
-	print STDOUT <<EOF;
-qpeek:  Peek into a job's output spool files
-
- Usage:  qpeek [options] JOBID
-
- Options:
-   -c      Show all of the output file ("cat", default)
-   -h      Show only the beginning of the output file ("head")
-   -t      Show only the end of the output file ("tail")
-   -f      Show only the end of the file and keep listening ("tail -f")
-   -<num>f Show only the last <num> lines and keep listening ("tail -<num>f")
-   +0f     Show all of the file and keep listening ("tail +0f")
-   -#      Show only # lines of output ("tail -<num>")
-   -e      Show the stderr file of the job
-   -o      Show the stdout file of the job (default)
-   -?      Display this help message
-EOF
-}
 
 $tool="cat" if ($options{c});
 $tool="head" if ($options{h});
