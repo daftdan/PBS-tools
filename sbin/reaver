@@ -160,7 +160,7 @@ if ( $safelist ne "" )
 
 # find all the target pids
 my @pids=();
-open(PS,"ps -A -o pid,state,uid,user,command |");
+open(PS,"ps -A -o pid,state,uid,user=WIDE-USER-COLUMN,command |");
 # snarf the 1st line
 <PS>;
 print "Stray processes:\n" if $verbose_mode;
