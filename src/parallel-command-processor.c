@@ -13,6 +13,15 @@
            EOF
  */
 
+/* Modification by Cicada Dennis of Indiana University, Research Technologies
+ * 2019-07-22, We found that the code crashed during the termination/cleanup
+ * phase of the program. It would not affect people's results, since it only
+ * happened after their code was finished running.
+ * It seems to have been caused by calculating MPI_Request addresses in a 
+ * way that caused MPI_Isend() commands to write outside of the the bounds 
+ * of the allocated MPI_Request space.
+*/
+
 #include <limits.h>
 #include <mpi.h>
 #include <stdio.h>
@@ -20,6 +29,7 @@
 #include <string.h>
 #include <unistd.h>
 
+//#define DEBUG	1
 #define REQUEST_TAG  0
 #define STATUS_TAG   1
 #define DATA_TAG     2
@@ -110,13 +120,6 @@ void mastermind(int nminions, FILE *input)
       int next;
       MPI_Status mystat;
 
-      MPI_Recv(&retcode,1,MPI_INT,MPI_ANY_SOURCE,REQUEST_TAG,MPI_COMM_WORLD,
-	       &mystat);
-      next = mystat.MPI_SOURCE;
- #ifdef DEBUG
-      printf("Rank 0:  rank %d returned code %d\n",next,retcode);
-#endif /* DEBUG */
-      MPI_Send(&cont,1,MPI_INT,next,STATUS_TAG,MPI_COMM_WORLD);
       memset(cmd,'\0',(size_t)LINE_MAX);
       fgets(cmd,LINE_MAX,input);
       while ( ( strlen(cmd)==0 || cmd[0]=='#') && !feof(input) )
@@ -127,6 +130,16 @@ void mastermind(int nminions, FILE *input)
 	}
       if ( strlen(cmd)>0 )
 	{
+          /* There is another command to run. 
+           * Find a rank that has completed its task. */
+          MPI_Recv(&retcode,1,MPI_INT,MPI_ANY_SOURCE,REQUEST_TAG,MPI_COMM_WORLD,
+	       &mystat);
+          next = mystat.MPI_SOURCE;
+ #ifdef DEBUG
+          printf("Rank 0:  rank %d returned code %d\n",next,retcode);
+#endif /* DEBUG */
+          /* Tell the rank to continue and send it the command to run. */
+          MPI_Send(&cont,1,MPI_INT,next,STATUS_TAG,MPI_COMM_WORLD);
 	  MPI_Send(cmd,strlen(cmd)-1,MPI_CHAR,next,DATA_TAG,
 		   MPI_COMM_WORLD);
 	}
@@ -135,13 +148,26 @@ void mastermind(int nminions, FILE *input)
   /* cleanup */
   MPI_Request *req;
   req = (MPI_Request *)calloc((size_t)(2*nminions),sizeof(MPI_Request));
-  for ( int i = 1 ; i <= nminions ; i++ )
+  // 2019-07-22, Change by Cicada Dennis
+  // On IU systems something about the way the address for req was calculated
+  // in MPI_Isend() commands was causing seg faults or writing out of bounds.
+  // Changed the index variable i to start at 0 instead of 1, but probs were
+  // still happening.
+  // Changed the MPI_Isend() commands to use subscripting for the
+  // req address value and it fixed problem.
+  for ( int i = 0 ; i < nminions ; i++ )
     {
       char exitcmd[] = "exit";
-      MPI_Isend(exitcmd,strlen(exitcmd),MPI_CHAR,i,DATA_TAG,MPI_COMM_WORLD,
-		req+(size_t)(2*i)*sizeof(MPI_Request));
-      MPI_Isend(&stop,1,MPI_INT,i,STATUS_TAG,MPI_COMM_WORLD,
-		req+(size_t)(2*i+1)*sizeof(MPI_Request));
+      int rank = i+1;
+
+      //MPI_Isend(exitcmd,strlen(exitcmd),MPI_CHAR,i,DATA_TAG,MPI_COMM_WORLD,
+      //	req+(size_t)(2*i)*sizeof(MPI_Request));
+      MPI_Isend(exitcmd,strlen(exitcmd),MPI_CHAR,rank,DATA_TAG,MPI_COMM_WORLD,
+              &(req[2*i]));
+      //MPI_Isend(&stop,1,MPI_INT,i,STATUS_TAG,MPI_COMM_WORLD,
+      //	req+(size_t)(2*i+1)*sizeof(MPI_Request));
+      MPI_Isend(&stop,1,MPI_INT,rank,STATUS_TAG,MPI_COMM_WORLD,
+              &(req[2*i+1]));
     }
   MPI_Barrier(MPI_COMM_WORLD);
 #ifdef DEBUG
